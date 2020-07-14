@@ -21,6 +21,10 @@ import xml.etree.ElementTree as ET
 import os.path
 
 def getFuncNameFromLibAndNID(xml_root, lib_name, nid):
+	# fix for NIDs with leading 0's
+	while len(nid) < 10:
+		nid = nid[:2] + '0' + nid[2:]
+
 	lib = xml_root.find(".//LIBRARY[NAME='"+lib_name+"']")
 	if lib is not None:
 		func = lib.find(".//FUNCTION[NID='"+nid+"']")

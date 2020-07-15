@@ -18,6 +18,7 @@
 from ghidra.program.model.data import DataTypeConflictHandler, ArrayDataType
 from ghidra.app.cmd.function import DeleteFunctionCmd
 from ghidra.app.util.cparser.C import CParser
+from ghidra.app.util.opinion import ElfLoader
 import xml.etree.ElementTree as ET
 import os.path
 
@@ -62,23 +63,76 @@ def createPSPModuleImportStruct():
 	# datatype isn't accurate, so lets request it from data type manager and return it
 	return currentProgram.getDataTypeManager().getDataType("/PspModuleImport")
 
+def createPSPModuleInfoStruct():
+	# struct from prxtypes.h
+	PSPModuleInfo_txt = """
+	struct PspModuleInfo {
+		unsigned int flags;
+		char name[28];
+		void *gp;
+		void *exports;
+		void *exp_end;
+		void *imports;
+		void *imp_end;
+	};"""
+
+	# Get Data Type Manager
+	data_type_manager = currentProgram.getDataTypeManager()
+
+	# Create CParser
+	parser = CParser(data_type_manager)
+
+	# Parse structure
+	parsed_datatype = parser.parse(PSPModuleInfo_txt)
+
+	# Add parsed type to data type manager
+	datatype = data_type_manager.addDataType(parsed_datatype, DataTypeConflictHandler.DEFAULT_HANDLER)
+
+	# datatype isn't accurate, so lets request it from data type manager and return it
+	return currentProgram.getDataTypeManager().getDataType("/PspModuleInfo")
+
+# .lib.stub isn't required in PRXes, so use .rodata.sceModuleInfo instead. Just kidding, this isn't
+# guaranteed to exist either - I'm looking at you, Assassin's Creed - Bloodlines. Instead,
+# calculate the address by examining the first load command in _elfProgramHeaders and subtracting
+# p_offset from p_paddr
+loadcmds = getDataAt(currentProgram.getMemory().getBlock("_elfProgramHeaders").getStart())
+# get first load command
+loadcmd = loadcmds.getComponent(0)
+# 2nd component is p_offset
+load_offset = loadcmd.getComponent(1).getValue().getValue() # Data->Scalar->Long
+# 4th component is p_addr
+load_paddr = loadcmd.getComponent(3).getValue()
+sceModuleInfo_addr = getAddressFactory().getAddress(load_paddr.subtract(load_offset).toString())
+# get the ELF's image base since PRX's aren't based at 0
+image_base = ElfLoader.getElfOriginalImageBase(currentProgram)
+sceModuleInfo_addr = sceModuleInfo_addr.add(image_base)
+
+# (re-)create sceModuleInfo struct
+sceModuleInfo_t = createPSPModuleInfoStruct()
+sceModuleInfo_t_len = sceModuleInfo_t.getLength()
+currentProgram.getListing().clearCodeUnits(sceModuleInfo_addr, sceModuleInfo_addr.add(sceModuleInfo_t_len), False)
+currentProgram.getListing().createData(sceModuleInfo_addr, sceModuleInfo_t)
+sceModuleInfo = getDataAt(sceModuleInfo_addr)
+# 6th component is ptr to stubs, aka 'imports'
+imports_addr = sceModuleInfo.getComponent(5).getValue()
+# 7th component is stubs end
+imports_end = sceModuleInfo.getComponent(6).getValue()
 # undefine .lib.stub section members
-stubs = currentProgram.getMemory().getBlock(".lib.stub");
-currentProgram.getListing().clearCodeUnits(stubs.getStart(), stubs.getEnd(), False)
+currentProgram.getListing().clearCodeUnits(imports_addr, imports_end, False)
 
 # create array of PspModuleImport
 import_t = createPSPModuleImportStruct()
 import_t_len = import_t.getLength()
-currentProgram.getListing().createData(stubs.getStart(), ArrayDataType(import_t, stubs.getSize()/import_t_len, import_t_len))
+currentProgram.getListing().createData(imports_addr, ArrayDataType(import_t, imports_end.subtract(imports_addr)/import_t_len, import_t_len))
 
 # Ghidra hack to get the current directory to load data files
 script_path = os.path.dirname(getSourceFile().getCanonicalPath())
 
 # load NID database from https://github.com/mathieulh/PSP-PRX-Libraries-Documentation-Project
-nidDB = ET.parse(os.path.join(script_path, "150_psplibdoc_201008.xml"))
+nidDB = ET.parse(os.path.join(script_path, "500_psplibdoc_191008.xml"))
 
 # iterate through array of library imports
-modules = getDataAt(stubs.getStart())
+modules = getDataAt(imports_addr)
 for index in range(modules.numComponents):
 	# grab this module out of the array of PspModuleImport
 	module = modules.getComponent(index)

@@ -16,6 +16,7 @@
 # limitations under the License.
 
 from ghidra.program.model.data import DataTypeConflictHandler, ArrayDataType
+from ghidra.app.cmd.function import DeleteFunctionCmd
 from ghidra.app.util.cparser.C import CParser
 import xml.etree.ElementTree as ET
 import os.path
@@ -102,5 +103,8 @@ for index in range(modules.numComponents):
 		nid = nid.replace('X', 'x')
 		# resolve NID to function name
 		label = getFuncNameFromLibAndNID(nidDB.getroot(), module_name, nid)
-		# update primary label for stub address
-		createLabel(stub_addr, label, True)
+		# delete any existing function so we can re-name it
+		df = DeleteFunctionCmd(stub_addr, True)
+		df.applyTo(currentProgram)
+		# create a function with the proper name
+		createFunction(stub_addr, label)

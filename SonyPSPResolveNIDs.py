@@ -26,17 +26,8 @@ import xml.etree.ElementTree as ET
 import os.path
 import sys
 
-def getFuncNameFromLibAndNID(xml_root, lib_name, nid):
-    # fix for NIDs with leading 0's
-    while len(nid) < 10:
-        nid = nid[:2] + '0' + nid[2:]
-    func = xml_root.find(".//FUNCTION[NID='"+nid+"']")
-    if func is not None:
-        #print "Found "+func.find("name").text
-        return func.find("NAME").text
-
-    print "WARN: NID "+nid+" in "+lib_name+" not documented"
-    return lib_name+"_"+nid
+def getNameForNID(nidDB, lib_name, nid):
+    return nidDB.get(nid, lib_name+"_"+nid)
 
 def createPSPModuleImportStruct():
     # struct from prxtypes.h
@@ -162,7 +153,7 @@ def resolveExports(exports_addr, exports_end, nidDB):
         # label the funcs with the module name
         createLabel(stub_base, module_name+"_funcs", True)
 
-        print "Reolving Export NIDs for",module_name
+        print "Resolving Export NIDs for",module_name
         for func_idx in range(num_funcs):
             nid_addr = nids_base.add(4*func_idx)
             #print "stub_base", stub_base, "func addr", stub_base.add(func_idx * 4), "data", getDataAt(stub_base.add(func_idx * 4))
@@ -172,7 +163,7 @@ def resolveExports(exports_addr, exports_end, nidDB):
             # ensure 0x instead of 0X
             nid = nid.replace('X', 'x')
             # resolve NID to function name
-            label = getFuncNameFromLibAndNID(nidDB.getroot(), module_name, nid)
+            label = getNameForNID(nidDB, module_name, nid)
             # delete any existing function so we can re-name it
             df = DeleteFunctionCmd(stub_addr, True)
             df.applyTo(currentProgram)
@@ -218,7 +209,7 @@ def resolveImports(imports_addr, imports_end, nidDB):
             # ensure 0x instead of 0X
             nid = nid.replace('X', 'x')
             # resolve NID to function name
-            label = getFuncNameFromLibAndNID(nidDB.getroot(), module_name, nid)
+            label = getNameForNID(nidDB, module_name, nid)
             # delete any existing function so we can re-name it
             df = DeleteFunctionCmd(stub_addr, True)
             df.applyTo(currentProgram)
@@ -264,9 +255,18 @@ imports_end = sceModuleInfo.getComponent(6).getValue()
 # Ghidra hack to get the current directory to load data files
 script_path = os.path.dirname(getSourceFile().getCanonicalPath())
 
-# load NID database from https://github.com/mathieulh/PSP-PRX-Libraries-Documentation-Project
-nidDB = ET.parse(os.path.join(script_path, "ppsspp_niddb.xml"))
+# load NID database
+xml_root = ET.parse(os.path.join(script_path, "ppsspp_niddb.xml"))
 
+# construct dict of NID->NAME to greatly speed up lookup
+nidDB = {}
+funcs = xml_root.findall(".//FUNCTION")
+for func in funcs:
+    nid = func.find("NID").text
+    name = func.find("NAME").text
+    nidDB[nid] = name
+
+# resolve all the NIDs!
 resolveExports(exports_addr, exports_end, nidDB)
 resolveImports(imports_addr, imports_end, nidDB)
 

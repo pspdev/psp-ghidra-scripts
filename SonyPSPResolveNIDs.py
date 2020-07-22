@@ -287,57 +287,83 @@ def resolveImports(imports_addr, imports_end, nidDB):
             # create a function with the proper name
             createFunction(stub_addr, label)
 
-# .lib.stub isn't required in PRXes, so use .rodata.sceModuleInfo instead. Just kidding, this isn't
-# guaranteed to exist either - I'm looking at you, Assassin's Creed - Bloodlines. Instead,
-# calculate the address by examining the first load command in _elfProgramHeaders and subtracting
-# p_offset from p_paddr
-loadcmds = getDataAt(currentProgram.getMemory().getBlock("_elfProgramHeaders").getStart())
-# get first load command
-loadcmd = loadcmds.getComponent(0)
-# 2nd component is p_offset
-load_offset = loadcmd.getComponent(1).getValue().getValue() # Data->Scalar->Long
-# 4th component is p_addr
-load_paddr = loadcmd.getComponent(3).getValue()
+def getModuleInfoAddrFromLoadCommands():
+    # Calculate the address os sceModuleInfo by examining the first load command
+    # in _elfProgramHeaders and subtracting p_offset from p_paddr
+    loadcmds = getDataAt(currentProgram.getMemory().getBlock("_elfProgramHeaders").getStart())
+    # get first load command
+    loadcmd = loadcmds.getComponent(0)
+    # 2nd component is p_offset
+    load_offset = loadcmd.getComponent(1).getValue().getValue() # Data->Scalar->Long
+    # 4th component is p_addr
+    load_paddr = loadcmd.getComponent(3).getValue()
 
-# account for kernel mode PRX with upper bit set
-if load_paddr.value & 0x80000000:
-    load_paddr = load_paddr.subtract(0x80000000)
+    # account for kernel mode PRX with upper bit set
+    if load_paddr.value & 0x80000000:
+        load_paddr = load_paddr.subtract(0x80000000)
 
-sceModuleInfo_addr = getAddressFactory().getAddress(load_paddr.subtract(load_offset).toString())
-# get the ELF's image base since PRX's aren't based at 0
-image_base = ElfLoader.getElfOriginalImageBase(currentProgram)
-sceModuleInfo_addr = sceModuleInfo_addr.add(image_base)
+    sceModuleInfo_addr = getAddressFactory().getAddress(load_paddr.subtract(load_offset).toString())
 
-# (re-)create sceModuleInfo struct
-sceModuleInfo_t = createPSPModuleInfoStruct()
-sceModuleInfo_t_len = sceModuleInfo_t.getLength()
-currentProgram.getListing().clearCodeUnits(sceModuleInfo_addr, sceModuleInfo_addr.add(sceModuleInfo_t_len), False)
-currentProgram.getListing().createData(sceModuleInfo_addr, sceModuleInfo_t)
-sceModuleInfo = getDataAt(sceModuleInfo_addr)
-# 4th component is ptr to exports
-exports_addr = sceModuleInfo.getComponent(3).getValue()
-# 5th component is exports end
-exports_end = sceModuleInfo.getComponent(4).getValue()
-# 6th component is ptr to stubs, aka 'imports'
-imports_addr = sceModuleInfo.getComponent(5).getValue()
-# 7th component is stubs end
-imports_end = sceModuleInfo.getComponent(6).getValue()
+    # get the ELF's image base since PRX's aren't based at 0
+    image_base = ElfLoader.getElfOriginalImageBase(currentProgram)
 
-# Ghidra hack to get the current directory to load data files
-script_path = os.path.dirname(getSourceFile().getCanonicalPath())
+    return sceModuleInfo_addr.add(image_base)
 
-# load NID database
-xml_root = ET.parse(os.path.join(script_path, "ppsspp_niddb.xml"))
+def findAndLoadModuleInfoStruct():
+    # create sceModuleInfo struct
+    sceModuleInfo_t = createPSPModuleInfoStruct()
+    sceModuleInfo_t_len = sceModuleInfo_t.getLength()
 
-# construct dict of NID->NAME to greatly speed up lookup
-nidDB = {}
-funcs = xml_root.findall(".//FUNCTION")
-for func in funcs:
-    nid = func.find("NID").text
-    name = func.find("NAME").text
-    nidDB[nid] = name
+    # .lib.stub isn't required in PRXes, so use .rodata.sceModuleInfo instead.
+    sceModuleInfo_section = currentProgram.getMemory().getBlock(".rodata.sceModuleInfo")
+    if sceModuleInfo_section is None:
+        # Just kidding, this isn't guaranteed to exist either - I'm looking at you, Assassin's Creed - Bloodlines.
+        print "Could not find .rodata.sceModuleInfo section, calculating its location from ELF Program Headers"
+        sceModuleInfo_addr = getModuleInfoAddrFromLoadCommands()
+    else:
+        sceModuleInfo_addr = sceModuleInfo_section.getStart()
 
-# resolve all the NIDs!
-resolveExports(exports_addr, exports_end, nidDB, sceModuleInfo.getComponent(1).value)
-resolveImports(imports_addr, imports_end, nidDB)
+    # re-create sceModuleInfo struct at the given address
+    currentProgram.getListing().clearCodeUnits(sceModuleInfo_addr, sceModuleInfo_addr.add(sceModuleInfo_t_len), False)
+    currentProgram.getListing().createData(sceModuleInfo_addr, sceModuleInfo_t)
+    return getDataAt(sceModuleInfo_addr)
 
+def loadNIDDB(xml_file):
+    # Ghidra hack to get the current directory to load data files
+    script_path = os.path.dirname(getSourceFile().getCanonicalPath())
+
+    # load NID database
+    xml_root = ET.parse(os.path.join(script_path, xml_file))
+
+    # construct dict of NID->NAME to greatly speed up lookup
+    nidDB = {}
+    funcs = xml_root.findall(".//FUNCTION")
+    for func in funcs:
+        nid = func.find("NID").text
+        name = func.find("NAME").text
+        nidDB[nid] = name
+    return nidDB
+
+def main():
+    nidDB = loadNIDDB("ppsspp_niddb.xml")
+
+    sceModuleInfo = findAndLoadModuleInfoStruct()
+    # 2nd component is the module's name
+    module_name = sceModuleInfo.getComponent(1).value
+    # sanitize the name for use in Ghidra labels
+    module_name = module_name.replace(" ", "_")
+    # 4th component is ptr to exports
+    exports_addr = sceModuleInfo.getComponent(3).getValue()
+    # 5th component is exports end
+    exports_end = sceModuleInfo.getComponent(4).getValue()
+    # 6th component is ptr to stubs, aka 'imports'
+    imports_addr = sceModuleInfo.getComponent(5).getValue()
+    # 7th component is stubs end
+    imports_end = sceModuleInfo.getComponent(6).getValue()
+
+    # resolve all the NIDs!
+    resolveExports(exports_addr, exports_end, nidDB, module_name)
+    resolveImports(imports_addr, imports_end, nidDB)
+
+if __name__ == "__main__":
+    main()

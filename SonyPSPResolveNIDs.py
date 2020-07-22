@@ -348,6 +348,10 @@ def main():
     nidDB = loadNIDDB("ppsspp_niddb.xml")
 
     sceModuleInfo = findAndLoadModuleInfoStruct()
+    # 2nd component is the module's name
+    module_name = sceModuleInfo.getComponent(1).value
+    # sanitize the name for use in Ghidra labels
+    module_name = module_name.replace(" ", "_")
     # 4th component is ptr to exports
     exports_addr = sceModuleInfo.getComponent(3).getValue()
     # 5th component is exports end
@@ -358,7 +362,7 @@ def main():
     imports_end = sceModuleInfo.getComponent(6).getValue()
 
     # resolve all the NIDs!
-    resolveExports(exports_addr, exports_end, nidDB, sceModuleInfo.getComponent(1).value)
+    resolveExports(exports_addr, exports_end, nidDB, module_name)
     resolveImports(imports_addr, imports_end, nidDB)
 
 if __name__ == "__main__":

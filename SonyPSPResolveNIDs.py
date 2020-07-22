@@ -129,7 +129,7 @@ def resolveExports(exports_addr, exports_end, nidDB, moduleInfo_name):
     exports_offset = 0
     addr = exports_addr
     modules = []
-    while addr.add(export_t_len).compareTo(exports_end) < 0:
+    while addr.add(export_t_len).compareTo(exports_end) <= 0:
         # create struct at address
         currentProgram.getListing().createData(addr, export_t, export_t_len)
         # create module object from data
@@ -222,7 +222,7 @@ def resolveImports(imports_addr, imports_end, nidDB):
     imports_offset = 0
     addr = imports_addr
     modules = []
-    while addr.add(import_t_len).compareTo(imports_end) < 0:
+    while addr.add(import_t_len).compareTo(imports_end) <= 0:
         # create struct at address
         currentProgram.getListing().createData(addr, import_t, import_t_len)
         # create module object from data

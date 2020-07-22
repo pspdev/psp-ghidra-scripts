@@ -29,34 +29,6 @@ import sys
 def getNameForNID(nidDB, lib_name, nid):
     return nidDB.get(nid, lib_name+"_"+nid)
 
-def createPSPModuleImportStruct():
-    # struct from prxtypes.h
-    PspModuleImport_txt = """
-    struct PspModuleImport{
-        char *name;
-        unsigned int flags;
-        unsigned char  entry_size;
-        unsigned char  var_count;
-        unsigned short func_count;
-        unsigned int *nids;
-        unsigned int *funcs;
-    };"""
-
-    # Get Data Type Manager
-    data_type_manager = currentProgram.getDataTypeManager()
-
-    # Create CParser
-    parser = CParser(data_type_manager)
-
-    # Parse structure
-    parsed_datatype = parser.parse(PspModuleImport_txt)
-
-    # Add parsed type to data type manager
-    datatype = data_type_manager.addDataType(parsed_datatype, DataTypeConflictHandler.DEFAULT_HANDLER)
-
-    # datatype isn't accurate, so lets request it from data type manager and return it
-    return currentProgram.getDataTypeManager().getDataType("/PspModuleImport")
-
 def createPSPModuleInfoStruct():
     # struct from prxtypes.h
     PSPModuleInfo_txt = """
@@ -85,6 +57,34 @@ def createPSPModuleInfoStruct():
     # datatype isn't accurate, so lets request it from data type manager and return it
     return currentProgram.getDataTypeManager().getDataType("/PspModuleInfo")
 
+def createPSPModuleImportStruct():
+    # struct from prxtypes.h
+    PspModuleImport_txt = """
+    struct PspModuleImport{
+        char *name;
+        unsigned int flags;
+        unsigned char  entry_size;
+        unsigned char  var_count;
+        unsigned short func_count;
+        unsigned int *nids;
+        unsigned int *funcs;
+    };"""
+
+    # Get Data Type Manager
+    data_type_manager = currentProgram.getDataTypeManager()
+
+    # Create CParser
+    parser = CParser(data_type_manager)
+
+    # Parse structure
+    parsed_datatype = parser.parse(PspModuleImport_txt)
+
+    # Add parsed type to data type manager
+    datatype = data_type_manager.addDataType(parsed_datatype, DataTypeConflictHandler.DEFAULT_HANDLER)
+
+    # datatype isn't accurate, so lets request it from data type manager and return it
+    return currentProgram.getDataTypeManager().getDataType("/PspModuleImport")
+
 def createPSPModuleExportStruct():
     # struct from prxtypes.h
     PSPModuleExport_txt = """
@@ -92,7 +92,8 @@ def createPSPModuleExportStruct():
     {
         char *name;
         unsigned int flags;
-        unsigned short unk_count;
+        byte  entry_len;
+        byte  var_count;
         unsigned short func_count;
         unsigned int *exports;
     };"""
@@ -112,7 +113,7 @@ def createPSPModuleExportStruct():
     # datatype isn't accurate, so lets request it from data type manager and return it
     return currentProgram.getDataTypeManager().getDataType("/PspModuleExport")
 
-def resolveExports(exports_addr, exports_end, nidDB):
+def resolveExports(exports_addr, exports_end, nidDB, moduleInfo_name):
     # undefine .lib.stub section members
     currentProgram.getListing().clearCodeUnits(exports_addr, exports_end, False)
 
@@ -123,41 +124,64 @@ def resolveExports(exports_addr, exports_end, nidDB):
         print "No exports to resolve"
         return 0
 
-    currentProgram.getListing().createData(exports_addr, ArrayDataType(export_t, exports_end.subtract(exports_addr)/export_t_len, export_t_len))
+    exports_offset = 0
+    addr = exports_addr
+    modules = []
+    while addr.add(export_t_len).compareTo(exports_end) < 0:
+        # create struct at address
+        currentProgram.getListing().createData(addr, export_t, export_t_len)
+        # create module object from data
+        module = getDataAt(addr)
+        # append module to modules list
+        modules.append(module)
+        # get entry len & update exports_offset
+        entry_len = module.getComponent(2).value.getUnsignedValue()
+        exports_offset += 4*entry_len
+        # update address
+        addr = exports_addr.add(exports_offset)
 
+        
     # iterate through array of exports
-    modules = getDataAt(exports_addr)
-    for index in range(modules.numComponents):
-        # just skip the first one
-        if index == 0:
-            continue
-        # grab this module out of the array of PspModuleExport
-        module = modules.getComponent(index)
+    module_index = 0
+    for module in modules:
         # roundabout way to grab the string pointed to by the name field
         module_name_addr = module.getComponent(0)
         module_name = "(none)"
         # why we can't just get a number to compare against 0 is beyond me
         if module_name_addr.value.toString() != "00000000":
             module_name = getDataAt(module_name_addr.value).value
-            print "name is ",module_name
+        elif module_index == 0:
+            module_name = moduleInfo_name
+        else:
+            module_name = "unknown"
+        # increase module count
+        module_index += 1
+
         # another roundabout way to get an actual number
-        num_funcs = module.getComponent(3).value.getUnsignedValue()
-        nids_base = module.getComponent(4).value
-        stub_base = nids_base.add(4 * num_funcs)
+        num_vars  = module.getComponent(3).value.getUnsignedValue()
+        num_funcs = module.getComponent(4).value.getUnsignedValue()
+        nids_base = module.getComponent(5).value
+        num_nids = num_vars + num_funcs
+        stub_base = nids_base.add(4 * num_nids)
+        # at stub_base, function NIDs come first, followed by variable NIDs
+        #print module_name,"has", num_vars, "variables, and", num_funcs, "exported functions"
         # convert raw data to DWORDs to 'show' NIDs
-        createDwords(nids_base, num_funcs)
-        for n in range(num_funcs):
+        createDwords(nids_base, num_nids)
+        # convert raw data to pointers for vars & funcs
+        for n in range(num_nids):
            createPointer(currentProgram, stub_base.add(4 * n))
         # label the NIDs with the module name
         createLabel(nids_base, module_name+"_nids", True)
         # label the funcs with the module name
         createLabel(stub_base, module_name+"_funcs", True)
+        # label the vars with the module name
+        if num_vars > 0:
+            createLabel(stub_base.add(4*num_funcs), module_name+"_vars", True)
 
         print "Resolving Export NIDs for",module_name
         for func_idx in range(num_funcs):
             nid_addr = nids_base.add(4*func_idx)
-            #print "stub_base", stub_base, "func addr", stub_base.add(func_idx * 4), "data", getDataAt(stub_base.add(func_idx * 4))
-            stub_addr = getDataAt(stub_base.add(func_idx * 4)).value#stub_base.getNewAddress(val)
+            stub_addr = getDataAt(stub_base.add(4*func_idx)).value
             # get NID hex and convert to uppercase
             nid = str(getDataAt(nid_addr).value).upper()
             # ensure 0x instead of 0X
@@ -169,6 +193,17 @@ def resolveExports(exports_addr, exports_end, nidDB):
             df.applyTo(currentProgram)
             # create a function with the proper name
             createFunction(stub_addr, label)
+
+        for var_idx in range(num_vars):
+            nid_addr = nids_base.add(4*num_funcs + 4*var_idx)
+            stub_addr = getDataAt(stub_base.add(4*num_funcs + 4*var_idx)).value
+            # get NID hex and convert to uppercase
+            nid = str(getDataAt(nid_addr).value).upper()
+            # ensure 0x instead of 0X
+            nid = nid.replace('X', 'x')
+            # resolve NID to variable name
+            label = getNameForNID(nidDB, module_name, nid)
+            createLabel(stub_addr, "var_"+label, True)
 
 def resolveImports(imports_addr, imports_end, nidDB):
     # undefine .lib.stub section members
@@ -267,6 +302,6 @@ for func in funcs:
     nidDB[nid] = name
 
 # resolve all the NIDs!
-resolveExports(exports_addr, exports_end, nidDB)
+resolveExports(exports_addr, exports_end, nidDB, sceModuleInfo.getComponent(1).value)
 resolveImports(imports_addr, imports_end, nidDB)
 

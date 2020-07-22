@@ -29,6 +29,9 @@ import sys
 import re
 
 def getNameForNID(nidDB, lib_name, nid):
+    # fix for NIDs with missing leading 0's
+    while len(nid) < 10:
+        nid = nid[:2] + '0' + nid[2:]
     return nidDB.get(nid, lib_name+"_"+nid)
 
 def createPSPModuleInfoStruct():

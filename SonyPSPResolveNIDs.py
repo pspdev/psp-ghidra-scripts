@@ -22,9 +22,11 @@ from ghidra.app.cmd.function import DeleteFunctionCmd
 from ghidra.app.util.cparser.C import CParser
 from ghidra.app.util.opinion import ElfLoader
 from ghidra.app.util.bin.format.objectiveC.ObjectiveC1_Utilities import *
+from ghidra.program.model.data import TerminatedStringDataType
 import xml.etree.ElementTree as ET
 import os.path
 import sys
+import re
 
 def getNameForNID(nidDB, lib_name, nid):
     return nidDB.get(nid, lib_name+"_"+nid)
@@ -235,6 +237,22 @@ def resolveImports(imports_addr, imports_end, nidDB):
 
     # iterate through array of library imports
     for module in modules:
+        # validate name field, thanks to FW 6.61 wlan.prx (See Issue #1)
+        module_name_ptr = module.getComponent(0).value
+        module_name_data = getDataAt(module_name_ptr)
+        if module_name_data is None:
+            print "WARNING: Attempting to correct incomplete string datatype for PSPModuleImport.name"
+            try:
+                currentProgram.getListing().createData(module_name_ptr, TerminatedStringDataType.dataType)
+            except ghidra.program.model.util.CodeUnitInsertionException as e:
+                # this is brittle but we lack a better way right now
+                # fingers crossed that Ghidra doesn't change their python exception message
+                match = re.match(".*([0-8A-Fa-f]{8})\sto\s([0-8A-Fa-f]{8})", e.message)
+                if match:
+                    print "WARNING: Clearing data from ", match.group(1), "to", match.group(2)
+                    currentProgram.getListing().clearCodeUnits(module_name_ptr.getNewAddress(int("0x"+match.group(1), 16)), module_name_ptr.getNewAddress(int("0x"+match.group(2), 16)), False)
+                    currentProgram.getListing().createData(module_name_ptr, TerminatedStringDataType.dataType)
+
         # roundabout way to grab the string pointed to by the name field
         module_name = getDataAt(module.getComponent(0).value).value
         # another roundabout way to get an actual number

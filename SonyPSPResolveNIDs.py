@@ -63,8 +63,8 @@ def createPSPModuleImportStruct():
     struct PspModuleImport{
         char *name;
         unsigned int flags;
-        unsigned char  entry_size;
-        unsigned char  var_count;
+        byte     entry_size;
+        byte     var_count;
         unsigned short func_count;
         unsigned int *nids;
         unsigned int *funcs;
@@ -92,8 +92,8 @@ def createPSPModuleExportStruct():
     {
         char *name;
         unsigned int flags;
-        byte  entry_len;
-        byte  var_count;
+        byte     entry_len;
+        byte     var_count;
         unsigned short func_count;
         unsigned int *exports;
     };"""
@@ -180,8 +180,8 @@ def resolveExports(exports_addr, exports_end, nidDB, moduleInfo_name):
 
         print "Resolving Export NIDs for",module_name
         for func_idx in range(num_funcs):
-            nid_addr = nids_base.add(4*func_idx)
-            stub_addr = getDataAt(stub_base.add(4*func_idx)).value
+            nid_addr = nids_base.add(4 * func_idx)
+            stub_addr = getDataAt(stub_base.add(4 * func_idx)).value
             # get NID hex and convert to uppercase
             nid = str(getDataAt(nid_addr).value).upper()
             # ensure 0x instead of 0X
@@ -217,19 +217,34 @@ def resolveImports(imports_addr, imports_end, nidDB):
         print "No imports to resolve"
         return 0
 
-    currentProgram.getListing().createData(imports_addr, ArrayDataType(import_t, imports_end.subtract(imports_addr)/import_t_len, import_t_len))
+    imports_offset = 0
+    addr = imports_addr
+    modules = []
+    while addr.add(import_t_len).compareTo(imports_end) < 0:
+        # create struct at address
+        currentProgram.getListing().createData(addr, import_t, import_t_len)
+        # create module object from data
+        module = getDataAt(addr)
+        # append module to modules list
+        modules.append(module)
+        # get entry len & update exports_offset
+        entry_len = module.getComponent(2).value.getUnsignedValue()
+        imports_offset += 4 * entry_len
+        # update address
+        addr = imports_addr.add(imports_offset)
 
     # iterate through array of library imports
-    modules = getDataAt(imports_addr)
-    for index in range(modules.numComponents):
-        # grab this module out of the array of PspModuleImport
-        module = modules.getComponent(index)
+    for module in modules:
         # roundabout way to grab the string pointed to by the name field
         module_name = getDataAt(module.getComponent(0).value).value
         # another roundabout way to get an actual number
+        # num_vars  = module.getComponent(3).value.getUnsignedValue()
         num_funcs = module.getComponent(4).value.getUnsignedValue()
         nids_base = module.getComponent(5).value
         stub_base = module.getComponent(6).value
+        # TODO: account for variables here, like above.
+        #       We have yet to see variables in an import
+        # num_nids = num_vars + num_funcs
         # convert raw data to DWORDs to 'show' NIDs
         createDwords(nids_base, num_funcs)
         # label the NIDs with the module name
@@ -238,7 +253,7 @@ def resolveImports(imports_addr, imports_end, nidDB):
         print "Resolving Import NIDs for",module_name
         for func_idx in range(num_funcs):
             nid_addr = nids_base.add(4*func_idx)
-            stub_addr = stub_base.add(func_idx * 8)
+            stub_addr = stub_base.add(8*func_idx) # should this be 4?
             # get NID hex and convert to uppercase
             nid = str(getDataAt(nid_addr).value).upper()
             # ensure 0x instead of 0X

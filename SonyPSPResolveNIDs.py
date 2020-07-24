@@ -55,6 +55,20 @@ def getDataType(dataType):
             dtCache[dataType] = results[0]
             return results[0]
 
+    # auto-create pointer types as needed
+    ptrPos = dataType.rfind(" *")
+    if ptrPos != -1:
+        newType = None
+        # check for existing parent type
+        parentType = getDataType(dataType[:ptrPos])
+        if parentType:
+            data_type_manager = currentProgram.getDataTypeManager()
+            newType = data_type_manager.addDataType(currentProgram.getDataTypeManager().getPointer(parentType), DataTypeConflictHandler.DEFAULT_HANDLER)
+        else:
+            # recurse for each pointer in the type
+            #print "Recursing for",dataType,"with",dataType[:ptrPos]
+            newType = getDataType(dataType[:ptrPos])
+        dtCache[dataType[:ptrPos]] = newType
     return None
 
 def getNidInfo(nidDB, lib_name, nid):
@@ -182,44 +196,6 @@ def createCommonPSPTypes():
 
         # Add parsed type to data type manager
         data_type_manager.addDataType(parsed_datatype, DataTypeConflictHandler.DEFAULT_HANDLER)
-
-    # TODO: auto-create these in getData when requested
-    pointer_types = [
-        "int",
-        "u8",
-        "u16",
-        "u32",
-        "u64",
-        "SceInt32",
-        "SceInt64",
-        "SceUChar8",
-        "SceUInt",
-        "SceIoStat",
-        "SceKernelLMOption",
-        "SceKernelSMOption",
-        "SceKernelEventFlagInfo",
-        "PspGeListArgs",
-        "pspTime",
-        "time_t"
-    ]
-
-    for pointer in pointer_types:
-        arg_type = getDataType(pointer)
-        ret = data_type_manager.addDataType(currentProgram.getDataTypeManager().getPointer(arg_type), DataTypeConflictHandler.DEFAULT_HANDLER)
-        if ret is None:
-            print "Failed for",pointer
-    double_pointer_types = [
-        "SceUChar8",
-        "SceShort16"
-    ]
-
-    for pointer in double_pointer_types:
-        arg_type = getDataType(pointer)
-        ptr = currentProgram.getDataTypeManager().getPointer(arg_type)
-        ptrptr = currentProgram.getDataTypeManager().getPointer(ptr)
-        ret = data_type_manager.addDataType(ptrptr, DataTypeConflictHandler.DEFAULT_HANDLER)
-        if ret is None:
-            print "Failed for",pointer
 
 def createPSPModuleInfoStruct():
     # struct from prxtypes.h

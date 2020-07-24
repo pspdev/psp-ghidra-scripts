@@ -31,6 +31,7 @@ from ghidra.app.services import DataTypeManagerService
 import xml.etree.ElementTree as ET
 import os.path
 import sys
+import time
 import re
 
 dtCache = {}
@@ -64,11 +65,11 @@ def getDataType(dataType):
         if parentType:
             data_type_manager = currentProgram.getDataTypeManager()
             newType = data_type_manager.addDataType(currentProgram.getDataTypeManager().getPointer(parentType), DataTypeConflictHandler.DEFAULT_HANDLER)
+            dtCache[dataType[:ptrPos]] = newType
+            return newType
         else:
             # recurse for each pointer in the type
-            #print "Recursing for",dataType,"with",dataType[:ptrPos]
-            newType = getDataType(dataType[:ptrPos])
-        dtCache[dataType[:ptrPos]] = newType
+            return getDataType(dataType[:ptrPos])
     return None
 
 def getNidInfo(nidDB, lib_name, nid):
@@ -77,112 +78,14 @@ def getNidInfo(nidDB, lib_name, nid):
         nid = nid[:2] + '0' + nid[2:]
     return nidDB.get(nid, {"name": lib_name+"_"+nid, "ret_type": None, "args": []})
 
-def createCommonPSPTypes():
-    types = ["typedef uchar u8;",
-             "typedef ushort u16;",
-             "typedef uint u32;",
-             "typedef ulonglong u64;",
-             "typedef uint SceUID;",
-             "typedef unsigned int SceSize;",
-             "typedef short SceShort16;",
-             "typedef int SceInt32;",
-             "typedef uint SceUInt;",
-             "typedef u8 SceUChar8;",
-             "typedef longlong SceInt64;",
-             "typedef ulonglong SceUInt64;",
-             "typedef int SceMode;",
-             "typedef SceInt64 SceOff;",
-             "typedef void SceVoid;",
-             "typedef void* ScePVoid;",
-             "typedef struct SceModule { \
-                struct SceModule *next; \
-                unsigned short    attribute; \
-                unsigned char     version[2]; \
-                char              modname[27]; \
-                char              terminal; \
-                unsigned int      unknown1; \
-                unsigned int      unknown2; \
-                int               modid; \
-                unsigned int      unknown3[4]; \
-                void *            ent_top; \
-                unsigned int      ent_size; \
-                void *            stub_top; \
-                unsigned int      stub_size; \
-                unsigned int      unknown4[4]; \
-                unsigned int      entry_addr; \
-                unsigned int      gp_value; \
-                unsigned int      text_addr; \
-                unsigned int      text_size; \
-                unsigned int      data_size; \
-                unsigned int      bss_size; \
-                unsigned int      nsegment; \
-                unsigned int      segmentaddr[4]; \
-                unsigned int      segmentsize[4]; \
-              } SceModule;",
-              "typedef struct ScePspDateTime { \
-                unsigned short  year; \
-                unsigned short  month; \
-                unsigned short  day; \
-                unsigned short  hour; \
-                unsigned short  minute; \
-                unsigned short  second; \
-                unsigned int    microsecond; \
-              } ScePspDateTime;",
-              "typedef struct SceIoStat { \
-                SceMode         st_mode; \
-                unsigned int    st_attr; \
-                SceOff          st_size; \
-                ScePspDateTime  st_ctime; \
-                ScePspDateTime  st_atime; \
-                ScePspDateTime  st_mtime; \
-                unsigned int    st_private[6]; \
-              } SceIoStat;",
-              "typedef struct SceKernelLMOption { \
-                SceSize         size; \
-                SceUID          mpidtext; \
-                SceUID          mpiddata; \
-                unsigned int    flags; \
-                char            position; \
-                char            access; \
-                char            creserved[2]; \
-              } SceKernelLMOption;",
-              "typedef struct SceKernelSMOption { \
-                SceSize         size; \
-                SceUID          mpidstack; \
-                SceSize         stacksize; \
-                int             priority; \
-                unsigned int    attribute; \
-              } SceKernelSMOption;",
-              "typedef struct SceKernelEventFlagInfo { \
-                SceSize     size; \
-                char        name[32]; \
-                SceUInt     attr; \
-                SceUInt     initPattern; \
-                SceUInt     currentPattern; \
-                int         numWaitThreads; \
-              } SceKernelEventFlagInfo;",
-              "typedef struct PspGeContext { \
-                unsigned int context[512]; \
-              } PspGeContext;",
-              "typedef struct { \
-                unsigned int stack[8]; \
-              } SceGeStack;",
-              "typedef struct PspGeListArgs { \
-                unsigned int    size; \
-                PspGeContext*   context; \
-                u32 numStacks; \
-                SceGeStack *stacks; \
-              } PspGeListArgs;",
-              "typedef struct { \
-                u16 year; \
-                u16 month; \
-                u16 day; \
-                u16 hour; \
-                u16 minutes; \
-                u16 seconds; \
-                u32 microseconds; \
-              } pspTime;"
-            ]
+def createPSPSDKTypes():
+    types = ""
+    script_path = os.path.dirname(getSourceFile().getCanonicalPath())
+    types_path = os.path.join(script_path, "pspsdk_types.h")
+
+    # load PSP-specific types
+    with open(types_path,'r') as fh:
+        types = fh.readlines()
 
     # Get Data Type Manager
     data_type_manager = currentProgram.getDataTypeManager()
@@ -190,12 +93,50 @@ def createCommonPSPTypes():
     # Create CParser
     parser = CParser(data_type_manager)
 
-    for type in types:
+    # create Ghidra DataTypes for each type
+    print "Parsing pspsdk_types.h..."
+    structBuffer = ""
+    for line in types:
+        # strip comments
+        commentPos = line.rfind("//")
+        if commentPos != -1:
+            line = line[:commentPos]
+
+        # skip empty lines
+        if len(line.strip()) == 0:
+            continue
+
+        # detect the start of a structure
+        #if line.rfind("{") != -1:
+        if line.find("struct") != -1 or line.find("union") != -1:
+            structBuffer = line
+            continue
+        if structBuffer != "":
+            structBuffer += line
+            # keep going until we get a line with a closing brace
+            if line.rfind("}") == -1:
+                continue
+            else:
+                line = structBuffer
+
         # Parse structure
-        parsed_datatype = parser.parse(type)
+        try:
+            parsed_datatype = parser.parse(line)
+        except ghidra.app.util.cparser.C.ParseException:
+            for mgr in state.getTool().getService(DataTypeManagerService).getDataTypeManagers():
+                if mgr.getName() == "generic_clib":
+                    clib_parser = CParser(mgr)
+                    try:
+                        parsed_datatype = clib_parser.parse(line)
+                    except:
+                        print "WARN: Failed to parse", line.split('\n')[0]
 
         # Add parsed type to data type manager
         data_type_manager.addDataType(parsed_datatype, DataTypeConflictHandler.DEFAULT_HANDLER)
+
+        # reset struct buffer
+        if line.rfind("}") != -1:
+            structBuffer = ""
 
 def createPSPModuleInfoStruct():
     # struct from prxtypes.h
@@ -554,11 +495,12 @@ def loadNIDDB(xml_file):
     return nidDB
 
 def main():
-    #nidDB = loadNIDDB("ppsspp_niddb.xml")
-    nidDB = loadNIDDB("new.xml")
+    nidDB = loadNIDDB("psp_nid_info.xml")
 
     # add common typedefs
-    createCommonPSPTypes()
+    start_time = time.time()
+    createPSPSDKTypes()
+    print "PSPSDKTypes parsed in", (time.time() - start_time),"seconds"
 
     sceModuleInfo = findAndLoadModuleInfoStruct()
     # 2nd component is the module's name

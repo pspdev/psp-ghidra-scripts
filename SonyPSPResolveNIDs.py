@@ -1,6 +1,7 @@
 #Resolve Sony PSP NIDs to function names
 #@author John Kelley <john@kelley.ca>
 #@category Analysis
+#@menupath Tools.Parse NIDs
 #@website https://github.com/pspdev/psp-ghidra-scripts
 
 # PPSSPP NIDs: sift -e "\{(0[Xx][0-9A-F]+),\s+[^,]*,\s+\"[a-zA-Z0-9]+\"," | awk '{print $2 " " $4}'|tr -d "{,\""
@@ -17,12 +18,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from ghidra.program.model.data import DataTypeConflictHandler, ArrayDataType
+from ghidra.program.model.data import DataTypeConflictHandler, TerminatedStringDataType, DataType
 from ghidra.app.cmd.function import DeleteFunctionCmd
 from ghidra.app.util.cparser.C import CParser
 from ghidra.app.util.opinion import ElfLoader
-from ghidra.app.util.bin.format.objectiveC.ObjectiveC1_Utilities import *
-from ghidra.program.model.data import TerminatedStringDataType
+from ghidra.app.util.bin.format.objectiveC.ObjectiveC1_Utilities import createPointer
+from ghidra.program.model.symbol import SourceType
+from ghidra.program.model.listing import ParameterImpl
+from ghidra.program.model.listing.Function import FunctionUpdateType
+from ghidra.app.services import DataTypeManagerService
+
 import xml.etree.ElementTree as ET
 import os.path
 import sys

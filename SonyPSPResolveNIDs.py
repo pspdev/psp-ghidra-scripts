@@ -63,6 +63,164 @@ def getNidInfo(nidDB, lib_name, nid):
         nid = nid[:2] + '0' + nid[2:]
     return nidDB.get(nid, {"name": lib_name+"_"+nid, "ret_type": None, "args": []})
 
+def createCommonPSPTypes():
+    types = ["typedef uchar u8;",
+             "typedef ushort u16;",
+             "typedef uint u32;",
+             "typedef ulonglong u64;",
+             "typedef uint SceUID;",
+             "typedef unsigned int SceSize;",
+             "typedef short SceShort16;",
+             "typedef int SceInt32;",
+             "typedef uint SceUInt;",
+             "typedef u8 SceUChar8;",
+             "typedef longlong SceInt64;",
+             "typedef ulonglong SceUInt64;",
+             "typedef int SceMode;",
+             "typedef SceInt64 SceOff;",
+             "typedef void SceVoid;",
+             "typedef void* ScePVoid;",
+             "typedef struct SceModule { \
+                struct SceModule *next; \
+                unsigned short    attribute; \
+                unsigned char     version[2]; \
+                char              modname[27]; \
+                char              terminal; \
+                unsigned int      unknown1; \
+                unsigned int      unknown2; \
+                int               modid; \
+                unsigned int      unknown3[4]; \
+                void *            ent_top; \
+                unsigned int      ent_size; \
+                void *            stub_top; \
+                unsigned int      stub_size; \
+                unsigned int      unknown4[4]; \
+                unsigned int      entry_addr; \
+                unsigned int      gp_value; \
+                unsigned int      text_addr; \
+                unsigned int      text_size; \
+                unsigned int      data_size; \
+                unsigned int      bss_size; \
+                unsigned int      nsegment; \
+                unsigned int      segmentaddr[4]; \
+                unsigned int      segmentsize[4]; \
+              } SceModule;",
+              "typedef struct ScePspDateTime { \
+                unsigned short  year; \
+                unsigned short  month; \
+                unsigned short  day; \
+                unsigned short  hour; \
+                unsigned short  minute; \
+                unsigned short  second; \
+                unsigned int    microsecond; \
+              } ScePspDateTime;",
+              "typedef struct SceIoStat { \
+                SceMode         st_mode; \
+                unsigned int    st_attr; \
+                SceOff          st_size; \
+                ScePspDateTime  st_ctime; \
+                ScePspDateTime  st_atime; \
+                ScePspDateTime  st_mtime; \
+                unsigned int    st_private[6]; \
+              } SceIoStat;",
+              "typedef struct SceKernelLMOption { \
+                SceSize         size; \
+                SceUID          mpidtext; \
+                SceUID          mpiddata; \
+                unsigned int    flags; \
+                char            position; \
+                char            access; \
+                char            creserved[2]; \
+              } SceKernelLMOption;",
+              "typedef struct SceKernelSMOption { \
+                SceSize         size; \
+                SceUID          mpidstack; \
+                SceSize         stacksize; \
+                int             priority; \
+                unsigned int    attribute; \
+              } SceKernelSMOption;",
+              "typedef struct SceKernelEventFlagInfo { \
+                SceSize     size; \
+                char        name[32]; \
+                SceUInt     attr; \
+                SceUInt     initPattern; \
+                SceUInt     currentPattern; \
+                int         numWaitThreads; \
+              } SceKernelEventFlagInfo;",
+              "typedef struct PspGeContext { \
+                unsigned int context[512]; \
+              } PspGeContext;",
+              "typedef struct { \
+                unsigned int stack[8]; \
+              } SceGeStack;",
+              "typedef struct PspGeListArgs { \
+                unsigned int    size; \
+                PspGeContext*   context; \
+                u32 numStacks; \
+                SceGeStack *stacks; \
+              } PspGeListArgs;",
+              "typedef struct { \
+                u16 year; \
+                u16 month; \
+                u16 day; \
+                u16 hour; \
+                u16 minutes; \
+                u16 seconds; \
+                u32 microseconds; \
+              } pspTime;"
+            ]
+
+    # Get Data Type Manager
+    data_type_manager = currentProgram.getDataTypeManager()
+
+    # Create CParser
+    parser = CParser(data_type_manager)
+
+    for type in types:
+        # Parse structure
+        parsed_datatype = parser.parse(type)
+
+        # Add parsed type to data type manager
+        data_type_manager.addDataType(parsed_datatype, DataTypeConflictHandler.DEFAULT_HANDLER)
+
+    # TODO: auto-create these in getData when requested
+    pointer_types = [
+        "int",
+        "u8",
+        "u16",
+        "u32",
+        "u64",
+        "SceInt32",
+        "SceInt64",
+        "SceUChar8",
+        "SceUInt",
+        "SceIoStat",
+        "SceKernelLMOption",
+        "SceKernelSMOption",
+        "SceKernelEventFlagInfo",
+        "PspGeListArgs",
+        "pspTime",
+        "time_t"
+    ]
+
+    for pointer in pointer_types:
+        arg_type = getDataType(pointer)
+        ret = data_type_manager.addDataType(currentProgram.getDataTypeManager().getPointer(arg_type), DataTypeConflictHandler.DEFAULT_HANDLER)
+        if ret is None:
+            print "Failed for",pointer
+    double_pointer_types = [
+        "SceUChar8",
+        "SceShort16"
+    ]
+
+    for pointer in double_pointer_types:
+        arg_type = getDataType(pointer)
+        ptr = currentProgram.getDataTypeManager().getPointer(arg_type)
+        ptrptr = currentProgram.getDataTypeManager().getPointer(ptr)
+        ret = data_type_manager.addDataType(ptrptr, DataTypeConflictHandler.DEFAULT_HANDLER)
+        if ret is None:
+            print "Failed for",pointer
+
 def createPSPModuleInfoStruct():
     # struct from prxtypes.h
     PSPModuleInfo_txt = """
@@ -422,6 +580,9 @@ def loadNIDDB(xml_file):
 def main():
     #nidDB = loadNIDDB("ppsspp_niddb.xml")
     nidDB = loadNIDDB("new.xml")
+
+    # add common typedefs
+    createCommonPSPTypes()
 
     sceModuleInfo = findAndLoadModuleInfoStruct()
     # 2nd component is the module's name

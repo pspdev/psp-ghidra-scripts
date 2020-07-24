@@ -33,6 +33,30 @@ import os.path
 import sys
 import re
 
+dtCache = {}
+def getDataType(dataType):
+    # hack for unsigned int
+    if dataType == "unsigned int":
+        dataType = "uint"
+
+    # hack for pointers and dirty hack for double pointers
+    dataType = re.sub(r"([^\s])\*", r"\1 * ", dataType).strip()
+
+    if dtCache.has_key(dataType):
+        return dtCache[dataType]
+
+    # this appears to be the best way, cache to speed this up
+    for mgr in state.getTool().getService(DataTypeManagerService).getDataTypeManagers():
+        results = []
+        # this is the magic function that doesn't require a fully-formed path
+        mgr.findDataTypes(dataType, results)
+        if len(results) > 0:
+            #print results,"from",mgr.getName()
+            dtCache[dataType] = results[0]
+            return results[0]
+
+    return None
+
 def getNameForNID(nidDB, lib_name, nid):
     # fix for NIDs with missing leading 0's
     while len(nid) < 10:
@@ -65,7 +89,7 @@ def createPSPModuleInfoStruct():
     datatype = data_type_manager.addDataType(parsed_datatype, DataTypeConflictHandler.DEFAULT_HANDLER)
 
     # datatype isn't accurate, so lets request it from data type manager and return it
-    return currentProgram.getDataTypeManager().getDataType("/PspModuleInfo")
+    return getDataType("PspModuleInfo")
 
 def createPSPModuleImportStruct():
     # struct from prxtypes.h
@@ -93,7 +117,7 @@ def createPSPModuleImportStruct():
     datatype = data_type_manager.addDataType(parsed_datatype, DataTypeConflictHandler.DEFAULT_HANDLER)
 
     # datatype isn't accurate, so lets request it from data type manager and return it
-    return currentProgram.getDataTypeManager().getDataType("/PspModuleImport")
+    return getDataType("PspModuleImport")
 
 def createPSPModuleExportStruct():
     # struct from prxtypes.h
@@ -121,7 +145,7 @@ def createPSPModuleExportStruct():
     datatype = data_type_manager.addDataType(parsed_datatype, DataTypeConflictHandler.DEFAULT_HANDLER)
 
     # datatype isn't accurate, so lets request it from data type manager and return it
-    return currentProgram.getDataTypeManager().getDataType("/PspModuleExport")
+    return getDataType("PspModuleExport")
 
 def resolveExports(exports_addr, exports_end, nidDB, moduleInfo_name):
     # undefine .lib.stub section members

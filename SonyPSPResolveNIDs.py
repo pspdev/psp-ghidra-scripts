@@ -57,11 +57,11 @@ def getDataType(dataType):
 
     return None
 
-def getNameForNID(nidDB, lib_name, nid):
+def getNidInfo(nidDB, lib_name, nid):
     # fix for NIDs with missing leading 0's
     while len(nid) < 10:
         nid = nid[:2] + '0' + nid[2:]
-    return nidDB.get(nid, lib_name+"_"+nid)
+    return nidDB.get(nid, {"name": lib_name+"_"+nid, "ret_type": None, "args": []})
 
 def createPSPModuleInfoStruct():
     # struct from prxtypes.h
@@ -221,7 +221,7 @@ def resolveExports(exports_addr, exports_end, nidDB, moduleInfo_name):
             # ensure 0x instead of 0X
             nid = nid.replace('X', 'x')
             # resolve NID to function name
-            label = getNameForNID(nidDB, module_name, nid)
+            label = getNidInfo(nidDB, module_name, nid)["name"]
             # delete any existing function so we can re-name it
             df = DeleteFunctionCmd(stub_addr, True)
             df.applyTo(currentProgram)
@@ -236,8 +236,41 @@ def resolveExports(exports_addr, exports_end, nidDB, moduleInfo_name):
             # ensure 0x instead of 0X
             nid = nid.replace('X', 'x')
             # resolve NID to variable name
-            label = getNameForNID(nidDB, module_name, nid)
+            label = getNidInfo(nidDB, module_name, nid)["name"]
             createLabel(stub_addr, "var_"+label, True)
+
+def annotateFunction(func, nid_info):
+    # set return type, do this separately from parameters
+    if nid_info["ret_type"] is not None:
+        ret_type = getDataType(nid_info["ret_type"])
+        if ret_type is not None:
+            func.setReturnType(ret_type, SourceType.valueOf("IMPORTED"))
+        else:
+            print "Couldn't get data type for",nid_info["ret_type"]
+
+    # only update function parameters if we have some
+    if len(nid_info["args"]) > 0:
+        # construct list of Ghidra Parameter objects
+        vars = []
+        for arg in nid_info["args"]:
+            if arg is None:
+                arg = "void"
+            parts = arg.split(' ')
+            if len(parts) > 2:
+                continue
+            # fix pointer * getting assigned to parts[1]
+            # TODO need a while loop to account for ["void", "**foo"]
+            if len(parts) > 1 and parts[1][0] == '*':
+                parts[0] += " *"
+                parts[1] = parts[1][1:]
+            arg_type = getDataType(parts[0])
+            if arg_type is None:
+                print "Failed annotating ",func.getName()," - please manually define '"+parts[0]+"' type and re-run"
+                continue
+            if len(parts) > 1:
+                vars.append(ParameterImpl(parts[1], arg_type, currentProgram))
+        # apply Ghidra Parameter objects to function
+        func.updateFunction(None, None, vars, FunctionUpdateType.valueOf("DYNAMIC_STORAGE_ALL_PARAMS"), False, SourceType.valueOf("IMPORTED"))
 
 def resolveImports(imports_addr, imports_end, nidDB):
     # undefine .lib.stub section members
@@ -309,12 +342,15 @@ def resolveImports(imports_addr, imports_end, nidDB):
             # ensure 0x instead of 0X
             nid = nid.replace('X', 'x')
             # resolve NID to function name
-            label = getNameForNID(nidDB, module_name, nid)
+            nid_info = getNidInfo(nidDB, module_name, nid)
+            label = nid_info["name"]
             # delete any existing function so we can re-name it
             df = DeleteFunctionCmd(stub_addr, True)
             df.applyTo(currentProgram)
             # create a function with the proper name
-            createFunction(stub_addr, label)
+            func = createFunction(stub_addr, label)
+            # annotate function return type and parameters
+            annotateFunction(func, nid_info)
 
 def getModuleInfoAddrFromLoadCommands():
     # Calculate the address os sceModuleInfo by examining the first load command
@@ -357,8 +393,35 @@ def findAndLoadModuleInfoStruct():
     currentProgram.getListing().createData(sceModuleInfo_addr, sceModuleInfo_t)
     return getDataAt(sceModuleInfo_addr)
 
+def loadNIDDB(xml_file):
+    # Ghidra hack to get the current directory to load data files
+    script_path = os.path.dirname(getSourceFile().getCanonicalPath())
+
+    # load NID database
+    xml_root = ET.parse(os.path.join(script_path, xml_file))
+
+    # construct dict of NID->NAME to greatly speed up lookup
+    nidDB = {}
+    funcs = xml_root.findall(".//FUNCTION")
+    for func in funcs:
+        nid = func.find("NID").text
+        name = func.find("NAME").text
+        # parse function prototype vars
+        ret_type = func.find("RETURN_TYPE")
+        if ret_type is not None:
+            ret_type = ret_type.text
+        args_list = []
+        args = func.find("ARGS")
+        if args is not None:
+            args = args.findall("ARG")
+            for arg in args:
+                args_list.append(arg.text)
+        nidDB[nid] = {"name": name, "ret_type": ret_type, "args": args_list}
+    return nidDB
+
 def main():
-    nidDB = loadNIDDB("ppsspp_niddb.xml")
+    #nidDB = loadNIDDB("ppsspp_niddb.xml")
+    nidDB = loadNIDDB("new.xml")
 
     sceModuleInfo = findAndLoadModuleInfoStruct()
     # 2nd component is the module's name

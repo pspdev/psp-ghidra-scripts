@@ -257,7 +257,7 @@ def resolveExports(exports_addr, exports_end, nidDB, moduleInfo_name):
         module_name_addr = module.getComponent(0)
         module_name = "(none)"
         # why we can't just get a number to compare against 0 is beyond me
-        if module_name_addr.value.toString() != "00000000":
+        if getDataAt(module_name_addr.value) is not None:
             module_name = getDataAt(module_name_addr.value).value
         elif module_index == 0:
             module_name = moduleInfo_name
@@ -318,7 +318,7 @@ def annotateFunction(func, nid_info):
     # set return type, do this separately from parameters
     if nid_info["ret_type"] is not None:
         ret_type = getDataType(nid_info["ret_type"])
-        if ret_type is not None:
+        if ret_type is not None and func is not None:
             func.setReturnType(ret_type, SourceType.valueOf("IMPORTED"))
         else:
             print "Couldn't get data type for",nid_info["ret_type"]
@@ -345,7 +345,8 @@ def annotateFunction(func, nid_info):
             if len(parts) > 1:
                 vars.append(ParameterImpl(parts[1], arg_type, currentProgram))
         # apply Ghidra Parameter objects to function
-        func.updateFunction(None, None, vars, FunctionUpdateType.valueOf("DYNAMIC_STORAGE_ALL_PARAMS"), False, SourceType.valueOf("IMPORTED"))
+        if func is not None:
+            func.updateFunction(None, None, vars, FunctionUpdateType.valueOf("DYNAMIC_STORAGE_ALL_PARAMS"), False, SourceType.valueOf("IMPORTED"))
 
 def resolveImports(imports_addr, imports_end, nidDB):
     # undefine .lib.stub section members

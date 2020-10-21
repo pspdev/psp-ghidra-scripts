@@ -256,7 +256,6 @@ def resolveExports(exports_addr, exports_end, nidDB, moduleInfo_name):
         # roundabout way to grab the string pointed to by the name field
         module_name_addr = module.getComponent(0)
         module_name = "(none)"
-        # why we can't just get a number to compare against 0 is beyond me
         if getDataAt(module_name_addr.value) is not None:
             module_name = getDataAt(module_name_addr.value).value
         elif module_index == 0:

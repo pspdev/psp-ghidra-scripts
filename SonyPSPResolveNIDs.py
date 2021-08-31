@@ -305,7 +305,7 @@ def getModuleInfoAddrFromLoadCommands():
     sceModuleInfo_addr = getAddressFactory().getAddress(load_paddr.subtract(load_offset).toString())
 
     # get the ELF's image base since PRX's aren't based at 0
-    image_base = ElfLoader.getElfOriginalImageBase(currentProgram)
+    image_base = currentProgram.getImageBase().getAddressableWordOffset() 
 
     return sceModuleInfo_addr.add(image_base)
 

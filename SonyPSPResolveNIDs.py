@@ -17,7 +17,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from ghidra.program.model.data import DataTypeConflictHandler, ArrayDataType
+from ghidra.program.model.data import DataTypeConflictHandler, ArrayDataType, PointerDataType
+from ghidra.program.model.scalar import Scalar
 from ghidra.app.cmd.function import DeleteFunctionCmd
 from ghidra.app.util.cparser.C import CParser
 from ghidra.app.util.opinion import ElfLoader
@@ -119,7 +120,7 @@ def createPSPModuleExportStruct():
     return currentProgram.getDataTypeManager().getDataType("/PspModuleExport")
 
 def resolveExports(exports_addr, exports_end, nidDB, moduleInfo_name):
-    # undefine .lib.stub section members
+    # undefine .lib.ent section members
     currentProgram.getListing().clearCodeUnits(exports_addr, exports_end, False)
 
     export_t = createPSPModuleExportStruct()
@@ -174,7 +175,7 @@ def resolveExports(exports_addr, exports_end, nidDB, moduleInfo_name):
         createDwords(nids_base, num_nids)
         # convert raw data to pointers for vars & funcs
         for n in range(num_nids):
-           createPointer(currentProgram, stub_base.add(4 * n))
+            applyData(currentProgram, PointerDataType(), stub_base.add(4 * n))
         # label the NIDs with the module name
         createLabel(nids_base, module_name+"_nids", True)
         # label the funcs with the module name
@@ -294,15 +295,15 @@ def getModuleInfoAddrFromLoadCommands():
     # get first load command
     loadcmd = loadcmds.getComponent(0)
     # 2nd component is p_offset
-    load_offset = loadcmd.getComponent(1).getValue().getValue() # Data->Scalar->Long
+    load_offset = loadcmd.getComponent(1).getLong(0)
     # 4th component is p_addr
-    load_paddr = loadcmd.getComponent(3).getValue()
+    load_paddr = loadcmd.getComponent(3).getLong(0)
 
     # account for kernel mode PRX with upper bit set
-    if load_paddr.value & 0x80000000:
-        load_paddr = load_paddr.subtract(0x80000000)
-
-    sceModuleInfo_addr = getAddressFactory().getAddress(load_paddr.subtract(load_offset).toString())
+    load_paddr &= 0x7fffffff
+    load_paddr = Scalar(32, load_paddr - load_offset, False)
+    
+    sceModuleInfo_addr = getAddressFactory().getAddress(load_paddr.toString())
 
     # get the ELF's image base since PRX's aren't based at 0
     image_base = currentProgram.getImageBase().getAddressableWordOffset() 

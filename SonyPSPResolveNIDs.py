@@ -127,7 +127,7 @@ def resolveExports(exports_addr, exports_end, nidDB, moduleInfo_name):
     export_t_len = export_t.getLength()
     num_exports = exports_end.subtract(exports_addr)/export_t_len
     if num_exports < 1:
-        print "No exports to resolve"
+        print("No exports to resolve")
         return 0
 
     exports_offset = 0
@@ -172,7 +172,7 @@ def resolveExports(exports_addr, exports_end, nidDB, moduleInfo_name):
         # at stub_base, function NIDs come first, followed by variable NIDs
         #print module_name,"has", num_vars, "variables, and", num_funcs, "exported functions"
         # convert raw data to DWORDs to 'show' NIDs
-        createDwords(nids_base, num_nids)
+        createDwords(nids_base, int(num_nids))
         # convert raw data to pointers for vars & funcs
         for n in range(num_nids):
             applyData(currentProgram, PointerDataType(), stub_base.add(4 * n))
@@ -184,7 +184,7 @@ def resolveExports(exports_addr, exports_end, nidDB, moduleInfo_name):
         if num_vars > 0:
             createLabel(stub_base.add(4*num_funcs), module_name+"_vars", True)
 
-        print "Resolving Export NIDs for",module_name
+        print("Resolving Export NIDs for",module_name)
         for func_idx in range(num_funcs):
             nid_addr = nids_base.add(4 * func_idx)
             stub_addr = getDataAt(stub_base.add(4 * func_idx)).value
@@ -220,7 +220,7 @@ def resolveImports(imports_addr, imports_end, nidDB):
     import_t_len = import_t.getLength()
     num_imports = imports_end.subtract(imports_addr)/import_t_len
     if num_imports < 1:
-        print "No imports to resolve"
+        print("No imports to resolve")
         return 0
 
     imports_offset = 0
@@ -248,7 +248,7 @@ def resolveImports(imports_addr, imports_end, nidDB):
         module_name_ptr = module.getComponent(0).value
         module_name_data = getDataAt(module_name_ptr)
         if module_name_data is None:
-            print "WARNING: Attempting to correct incomplete string datatype for PSPModuleImport.name"
+            print("WARNING: Attempting to correct incomplete string datatype for PSPModuleImport.name")
             try:
                 currentProgram.getListing().createData(module_name_ptr, TerminatedStringDataType.dataType)
             except ghidra.program.model.util.CodeUnitInsertionException as e:
@@ -256,7 +256,7 @@ def resolveImports(imports_addr, imports_end, nidDB):
                 # fingers crossed that Ghidra doesn't change their python exception message
                 match = re.match(".*([0-8A-Fa-f]{8})\sto\s([0-8A-Fa-f]{8})", e.message)
                 if match:
-                    print "WARNING: Clearing data from ", match.group(1), "to", match.group(2)
+                    print("WARNING: Clearing data from ", match.group(1), "to", match.group(2))
                     currentProgram.getListing().clearCodeUnits(module_name_ptr.getNewAddress(int("0x"+match.group(1), 16)), module_name_ptr.getNewAddress(int("0x"+match.group(2), 16)), False)
                     currentProgram.getListing().createData(module_name_ptr, TerminatedStringDataType.dataType)
 
@@ -271,11 +271,11 @@ def resolveImports(imports_addr, imports_end, nidDB):
         #       We have yet to see variables in an import
         # num_nids = num_vars + num_funcs
         # convert raw data to DWORDs to 'show' NIDs
-        createDwords(nids_base, num_funcs)
+        createDwords(nids_base, int(num_funcs))
         # label the NIDs with the module name
         createLabel(nids_base, module_name+"_nids", True)
 
-        print "Resolving Import NIDs for",module_name
+        print("Resolving Import NIDs for",module_name)
         for func_idx in range(num_funcs):
             nid_addr = nids_base.add(4*func_idx)
             stub_addr = stub_base.add(8*func_idx) # should this be 4?
@@ -322,7 +322,7 @@ def findAndLoadModuleInfoStruct():
     sceModuleInfo_section = currentProgram.getMemory().getBlock(".rodata.sceModuleInfo")
     if sceModuleInfo_section is None:
         # Just kidding, this isn't guaranteed to exist either - I'm looking at you, Assassin's Creed - Bloodlines.
-        print "Could not find .rodata.sceModuleInfo section, calculating its location from ELF Program Headers"
+        print("Could not find .rodata.sceModuleInfo section, calculating its location from ELF Program Headers")
         sceModuleInfo_addr = getModuleInfoAddrFromLoadCommands()
     else:
         sceModuleInfo_addr = sceModuleInfo_section.getStart()

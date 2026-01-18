@@ -68,7 +68,7 @@ def main():
         block.setWrite(True)
         block.setVolatile(True)
         block.setExecute(False)
-        print "Added", block
+        print("Added", block)
 
 if __name__ == "__main__":
     main()

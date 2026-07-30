@@ -2,6 +2,7 @@
 #@author John Kelley <john@kelley.ca>
 #@category Analysis
 #@website https://github.com/pspdev/psp-ghidra-scripts
+#@runtime Jython
 
 # PPSSPP NIDs: sift -e "\{(0[Xx][0-9A-F]+),\s+[^,]*,\s+\"[a-zA-Z0-9]+\"," | awk '{print $2 " " $4}'|tr -d "{,\""
 
@@ -22,7 +23,7 @@ from ghidra.program.model.scalar import Scalar
 from ghidra.app.cmd.function import DeleteFunctionCmd
 from ghidra.app.util.cparser.C import CParser
 from ghidra.app.util.opinion import ElfLoader
-from ghidra.app.util.bin.format.objectiveC.ObjectiveC1_Utilities import *
+from ghidra.app.util.bin.format.objc.ObjcUtils import createData
 from ghidra.program.model.data import TerminatedStringDataType
 import xml.etree.ElementTree as ET
 import os.path
@@ -175,7 +176,7 @@ def resolveExports(exports_addr, exports_end, nidDB, moduleInfo_name):
         createDwords(nids_base, num_nids)
         # convert raw data to pointers for vars & funcs
         for n in range(num_nids):
-            applyData(currentProgram, PointerDataType(), stub_base.add(4 * n))
+            _ = createData(currentProgram, PointerDataType(), stub_base.add(4 * n))
         # label the NIDs with the module name
         createLabel(nids_base, module_name+"_nids", True)
         # label the funcs with the module name

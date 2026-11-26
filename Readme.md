@@ -3,9 +3,10 @@ A collection of scripts to aid in reverse engineering PSP binaries in [Ghidra](h
 
 ## Installation
 From Ghidra's `Script Manager` window, press the `Script Directories` button and add the directory of your working copy.
-
+![alt text](assets/image.png)
 ## Running
 Double click the script name from the `Script Manager` window, ie `SonyPSPResolveNIDs.py`
+![alt text](assets/image2.png)
 
 ## Scripts
 ### SonyPSPResolveNIDs
